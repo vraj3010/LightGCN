@@ -22,6 +22,8 @@ class LightGCNConv(MessagePassing):
         row, col = edge_index
         #next line calculates the degree of each node(total incoming edges)
         deg = degree(col, x.size(0), dtype=x.dtype)
+        # print(deg.shape,"%%%")
+        # print(deg)
         deg_inv_sqrt = deg.pow(-0.5)
         deg_inv_sqrt[deg_inv_sqrt == float('inf')] = 0
         norm = deg_inv_sqrt[row] * deg_inv_sqrt[col]

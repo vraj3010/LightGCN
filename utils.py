@@ -84,9 +84,7 @@ def bpr_loss(user_emb, user_emb_0, item_emb, item_emb_0, edge_index_r, batch_siz
 
 
 def NDCG_K(model, train_r, test_r, K=20):
-    '''
-    https://towardsdatascience.com/evaluate-your-recommendation-engine-using-ndcg-759a851452d1
-    '''
+
     # Calculate the ratings for each user-item pair
     userEmbeddings = model.userEmb.weight
     itemEmbeddings = model.itemEmb.weight
@@ -129,3 +127,329 @@ def NDCG_K(model, train_r, test_r, K=20):
 
     return ndcg.mean().item()
 
+
+
+
+def ndcg_calculation_2(model, test_set, neg_samples,num_users,int_edges,head_items,k=5):
+
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    user_embeddings = model.userEmb.weight
+    item_embeddings = model.itemEmb.weight
+    total_ndcg = 0
+    count = 0
+
+    for user_id, pos_items in test_set.items():
+
+        if not pos_items:
+            continue
+
+        h=len(pos_items)
+
+        neg_items = random.sample(neg_samples[user_id], h)
+
+        if len(neg_items)*2<k:
+            continue
+        test_items = [item-num_users for item in pos_items] + neg_items
+        user_emb = user_embeddings[user_id]
+        item_embs = item_embeddings[test_items]
+        scores = torch.matmul(item_embs, user_emb)
+
+        sorted_indices = torch.argsort(scores, descending=True)
+        sorted_items = [test_items[i] for i in sorted_indices.tolist()]
+        dcg = 0
+        for i, item in enumerate(sorted_items[:k]):
+
+            if item+num_users in pos_items:
+                dcg += 1 / np.log2(i + 2)
+
+        idcg = sum(1/ np.log2(i + 2) for i in range(min(len(pos_items),k)))
+
+        ndcg = dcg / idcg if idcg > 0 else 0
+
+        total_ndcg += ndcg
+        count += 1
+
+    avg_ndcg= total_ndcg / count if count > 0 else 0
+    print(f"NDCG@10: {avg_ndcg}")
+
+
+def ndcg_calculation_head(model, test_set, neg_samples, num_users, int_edges, head_items, k=5):
+
+    user_embeddings = model.userEmb.weight
+    item_embeddings = model.itemEmb.weight
+    total_ndcg = 0
+    count = 0
+
+    for user_id, pos_items in test_set.items():
+        if not pos_items:
+            continue
+
+        # Filter positive items to only include head items
+        head_pos_items = [item for item in pos_items if item in head_items]
+        if not head_pos_items:
+            continue
+
+        h = len(head_pos_items)
+        neg_items = random.sample(neg_samples[user_id], h)
+
+        if len(neg_items) * 2 < k:
+            continue
+
+        # Convert head items to item indices (subtracting num_users)
+        test_items = [item - num_users for item in head_pos_items] + neg_items
+        user_emb = user_embeddings[user_id]
+        item_embs = item_embeddings[test_items]
+        scores = torch.matmul(item_embs, user_emb)
+
+        sorted_indices = torch.argsort(scores, descending=True)
+        sorted_items = [test_items[i] for i in sorted_indices.tolist()]
+
+        dcg = 0
+        for i, item in enumerate(sorted_items[:k]):
+            # Check if the item is in the head positive items (convert back to original ID)
+            if item + num_users in head_pos_items:
+                dcg += 1 / np.log2(i + 2)
+
+        idcg = sum(1 / np.log2(i + 2) for i in range(min(k,len(head_pos_items))))
+        ndcg = dcg / idcg if idcg > 0 else 0
+
+        # print(ndcg,user_id)
+        total_ndcg += ndcg
+        count += 1
+
+    avg_ndcg = total_ndcg / count if count > 0 else 0
+    print(f"NDCG@{k} for head items: {avg_ndcg},{count}")
+    return avg_ndcg
+
+
+def ndcg_calculation_tail(model, test_set, neg_samples, num_users, int_edges, tail_items, k=5):
+
+    user_embeddings = model.userEmb.weight
+    item_embeddings = model.itemEmb.weight
+    total_ndcg = 0
+    count = 0
+
+    for user_id, pos_items in test_set.items():
+        if not pos_items:
+            continue
+
+        # Filter positive items to only include head items
+        head_pos_items = [item for item in pos_items if item in tail_items]
+        if not head_pos_items:
+            continue
+        # print(len(head_pos_items),end=" ")
+        if len(head_pos_items)*2 < k:
+            continue
+        h = len(head_pos_items)
+        neg_items = random.sample(neg_samples[user_id], h)
+        # if user_id==3:
+        #     print(neg_items)
+        # Convert head items to item indices (subtracting num_users)
+        test_items = [item - num_users for item in head_pos_items] + neg_items
+        user_emb = user_embeddings[user_id]
+        item_embs = item_embeddings[test_items]
+        scores = torch.matmul(item_embs, user_emb)
+
+        sorted_indices = torch.argsort(scores, descending=True)
+        sorted_items = [test_items[i] for i in sorted_indices.tolist()]
+
+        dcg = 0
+        for i, item in enumerate(sorted_items[:k]):
+
+            if item + num_users in head_pos_items:
+                dcg += 1 / np.log2(i + 2)
+
+        idcg = sum(1 / np.log2(i + 2) for i in range(min(k,len(head_pos_items))))
+
+        ndcg = dcg / idcg if idcg > 0 else 0
+
+        total_ndcg += ndcg
+        count += 1
+
+    avg_ndcg = total_ndcg / count if count > 0 else 0
+
+    print(f"NDCG@{k} for tail items: {avg_ndcg}")
+    return avg_ndcg
+
+def separate_head_tail_items(interaction_counts, head_threshold=50):
+    head_items = [item for item, count in interaction_counts.items() if count >= head_threshold]
+    tail_items = [item for item, count in interaction_counts.items() if count < head_threshold]
+
+    return torch.tensor(head_items, dtype=torch.long), \
+        torch.tensor(tail_items, dtype=torch.long)
+
+def get_negative_items(ratings):
+    all_items = set(ratings['movieId'].unique())  # All available items
+    # print(len(all_items))
+    user_interactions = ratings.groupby('userId')['movieId'].apply(set)  # Get interacted items per user
+
+    negative_samples = {}  # Store negative samples for each user
+
+    for user, interacted_items in user_interactions.items():
+        negative_samples[user] = list(all_items - interacted_items)  # Items user has NOT interacted with
+
+    return negative_samples  # Dictionary {userId: [negative_item1, negative_item2, ...]}
+
+def create_test_set(test_edges):
+    test_set = {}
+
+    users = test_edges[0].tolist()  # Convert user tensor to list
+    items = test_edges[1].tolist()  # Convert item tensor to list
+
+    for user, item in zip(users, items):
+        if user not in test_set:
+            test_set[user] = []
+        test_set[user].append(item)  # Store as tuple (item, rating)
+
+    min_items = min(len(items) for items in test_set.values()) if test_set else 0
+    # print(f"Minimum number of items rated by any user: {min_items}")
+    # print(len(test_set))
+    return test_set
+
+def bpr_loss(user_emb, user_emb_0, item_emb, item_emb_0, edge_index_r, batch_size = 128, lambda_= 1e-6):
+
+    user_ids, pos_items, neg_items = sample_mini_batch(edge_index_r, batch_size=batch_size)
+
+    user_emb_sub = user_emb[user_ids]
+    pos_item_emb = item_emb[pos_items]
+    neg_item_emb = item_emb[neg_items]
+
+    pos_scores = torch.diag(user_emb_sub @ pos_item_emb.T)
+    neg_scores = torch.diag(user_emb_sub @ neg_item_emb.T)
+
+
+    reg_loss = lambda_*(
+        user_emb_0[user_ids].norm(2).pow(2) +
+        item_emb_0[pos_items].norm(2).pow(2) +
+        item_emb_0[neg_items].norm(2).pow(2) # L2 loss
+    )
+
+    loss = -torch.mean(torch.nn.functional.softplus(pos_scores - neg_scores)) + reg_loss
+    return loss
+
+
+def ndcg_calculation_3(model, test_set, neg_samples,num_users,int_edges,head_items,k=5):
+
+    user_embeddings=model.userEmb.weight
+    item_embeddings=model.itemEmb.weight
+    total_ndcg = 0
+    count = 0
+
+    for user_id, pos_items in test_set.items():
+
+        if not pos_items:
+            continue
+
+        neg_items = neg_samples[user_id]
+        test_items = [item-num_users for item in pos_items] + neg_items
+        user_emb = user_embeddings[user_id]
+        item_embs = item_embeddings[test_items]
+        scores = torch.matmul(item_embs, user_emb)
+        sorted_indices = torch.argsort(scores, descending=True)
+        sorted_items = [test_items[i] for i in sorted_indices.tolist()]
+        dcg = 0
+        for i, item in enumerate(sorted_items[:k]):
+
+            if item+num_users in pos_items:
+                dcg += 1 / np.log2(i + 2)
+
+        idcg = sum(1/ np.log2(i + 2) for i in range(min(len(pos_items),k)))
+
+        ndcg = dcg / idcg if idcg > 0 else 0
+        total_ndcg += ndcg
+        count += 1
+
+    avg_ndcg= total_ndcg / count if count > 0 else 0
+    print(f"NDCG@10: {avg_ndcg}")
+
+
+def ndcg_calculation_head_2(model, test_set, neg_samples, num_users, int_edges, head_items, k=5):
+
+    user_embeddings = model.userEmb.weight
+    item_embeddings = model.itemEmb.weight
+    total_ndcg = 0
+    count = 0
+
+    for user_id, pos_items in test_set.items():
+        if not pos_items:
+            continue
+
+        # Filter positive items to only include head items
+        head_pos_items = [item for item in pos_items if item in head_items]
+        if not head_pos_items:
+            continue
+
+
+        neg_items = neg_samples[user_id]
+        # Convert head items to item indices (subtracting num_users)
+        test_items = [item - num_users for item in head_pos_items] + neg_items
+        user_emb = user_embeddings[user_id]
+        item_embs = item_embeddings[test_items]
+        scores = torch.matmul(item_embs, user_emb)
+
+        sorted_indices = torch.argsort(scores, descending=True)
+        sorted_items = [test_items[i] for i in sorted_indices.tolist()]
+
+        dcg = 0
+        for i, item in enumerate(sorted_items[:k]):
+            # Check if the item is in the head positive items (convert back to original ID)
+            if item + num_users in head_pos_items:
+                dcg += 1 / np.log2(i + 2)
+
+        idcg = sum(1 / np.log2(i + 2) for i in range(min(k, len(head_pos_items))))
+        ndcg = dcg / idcg if idcg > 0 else 0
+
+        # print(ndcg,user_id)
+        total_ndcg += ndcg
+        count += 1
+
+    avg_ndcg = total_ndcg / count if count > 0 else 0
+    print(f"NDCG@{k} for head items: {avg_ndcg},{count}")
+    return avg_ndcg
+
+
+def ndcg_calculation_tail_2(model, test_set, neg_samples, num_users, int_edges, tail_items, k=5):
+    user_embeddings = model.userEmb.weight
+    item_embeddings = model.itemEmb.weight
+    total_ndcg = 0
+    count = 0
+
+    for user_id, pos_items in test_set.items():
+        if not pos_items:
+            continue
+
+        # Filter positive items to only include head items
+        head_pos_items = [item for item in pos_items if item in tail_items]
+        if not head_pos_items:
+            continue
+
+        # h = len(head_pos_items)
+        neg_items = neg_samples[user_id]
+        # if user_id==3:
+        #     print(neg_items)
+        # Convert head items to item indices (subtracting num_users)
+        test_items = [item - num_users for item in head_pos_items] + neg_items
+        user_emb = user_embeddings[user_id]
+        item_embs = item_embeddings[test_items]
+        scores = torch.matmul(item_embs, user_emb)
+
+        sorted_indices = torch.argsort(scores, descending=True)
+        sorted_items = [test_items[i] for i in sorted_indices.tolist()]
+
+        dcg = 0
+        for i, item in enumerate(sorted_items[:k]):
+
+            if item + num_users in head_pos_items:
+                dcg += 1 / np.log2(i + 2)
+
+        idcg = sum(1 / np.log2(i + 2) for i in range(min(k, len(head_pos_items))))
+
+        ndcg = dcg / idcg if idcg > 0 else 0
+
+        total_ndcg += ndcg
+        count += 1
+
+    avg_ndcg = total_ndcg / count if count > 0 else 0
+
+    print(f"NDCG@{k} for tail items: {avg_ndcg}")
+    return avg_ndcg

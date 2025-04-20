@@ -2,14 +2,11 @@ import pandas as pd
 import numpy as np 
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
-import torch 
 from train_test import train_test_split_per_user
 from tqdm import tqdm
-import matplotlib.pyplot as plt
-
+# import matplotlib.pyplot as plt
 from model import LightGCN
 from utils import *
-
 import torch
 from collections import defaultdict
 import random
@@ -23,12 +20,21 @@ movie_encoder = LabelEncoder()
 ratings['userId']  = user_encoder.fit_transform(ratings['userId'])
 ratings['movieId'] = movie_encoder.fit_transform(ratings['movieId'])
 
-# print(ratings['userId'])
+neg_samples=get_negative_items(ratings)
+
 num_users  = ratings['userId'].nunique()
 num_movies = ratings['movieId'].nunique()
-print(num_users)
-print(num_movies)
+# print(num_users)
+# print(num_movies)
 
+interaction_counts = ratings['movieId'].value_counts().to_dict()
+
+# Separate Head and Tail Items
+head_items, tail_items = separate_head_tail_items(interaction_counts, head_threshold=15)
+head_items = torch.tensor([i + num_users for i in head_items], dtype=torch.long)
+tail_items = torch.tensor([i + num_users for i in tail_items], dtype=torch.long)
+# print(len(head_items))
+# print(len(tail_items))
 int_edges = create_interaction_edges(ratings['userId'], ratings['movieId'], ratings['rating'])
 user_ids = int_edges[0].to(dtype=torch.long)
 indices = torch.arange(0, int_edges.shape[1], dtype=torch.long)
@@ -42,23 +48,24 @@ train_edges = int_edges[:, train_idx]
 test_edges  = int_edges[:, test_idx]
 
 # print(train_edges.shape)
+# print(test_edges.shape)
 
 train_adj = create_adj_matrix(train_edges, num_users, num_movies)
 test_adj  = create_adj_matrix(test_edges, num_users, num_movies)
 
-
+# print(train_adj.shape)
 train_r = adj_to_r_mat(train_adj, num_users, num_movies)
 test_r  = adj_to_r_mat(test_adj, num_users, num_movies)
 
+train_set = set(zip(train_r[0].tolist(), train_r[1].tolist()))
+# test_set = set(zip(test_r[0].tolist(), test_r[1].tolist()))
+# print(len(train_set & test_set) == 0,"**")
 
 ''' ------------ Training Loop ------------ '''
 
-NUM_ITER   = 10000
+NUM_ITER   = 1000
 BATCH_SIZE = 512
 
-# model = LightGCN(num_users, num_movies)
-# # model.load_state_dict(torch.load('trained_model.pth'))
-#
 model = LightGCN(num_users, num_movies)
 total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
@@ -67,26 +74,26 @@ print(f"Number of trainable parameters: {total_params}")
 
 optimizer = torch.optim.Adam(model.parameters(), lr = 0.001)
 scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
-# #
-loss_lst = []
-val_loss_lst = []
-ndcg_k_lst = []
-# #
+
+int_edges[1]+=num_users
+test_edges[1]+=num_users
+test_set=create_test_set(test_edges)
+ndcg_calculation_2(model, test_set, neg_samples, num_users,int_edges,head_items,k=10)
+ndcg_calculation_head(model, test_set, neg_samples, num_users,int_edges,head_items,k=10)
+ndcg_calculation_tail(model, test_set, neg_samples, num_users,int_edges,tail_items,k=2)
+ndcg_calculation_3(model, test_set, neg_samples, num_users, int_edges, head_items, k=10)
+ndcg_calculation_head_2(model, test_set, neg_samples, num_users,int_edges,head_items,k=10)
+ndcg_calculation_tail_2(model, test_set, neg_samples, num_users,int_edges,tail_items,k=10)
 iterator = tqdm(range(NUM_ITER))
-val_loss = 0
-ndcg_k = 0
+
+row,col=train_adj[0],train_adj[1]
+# print(max(row),min(row))
+# print(max(col),min(col))
 for i in iterator:
-    # if(i==100):
-    #     break
     model.train()
     optimizer.zero_grad()
 
-
     user_emb, user_emb_0, item_emb, item_emb_0 = model(train_adj)
-    # if (i == 0):
-    #     print(user_emb.shape)
-    # if(i>1):
-    #     break
     loss = bpr_loss(
         user_emb,
         user_emb_0,
@@ -95,68 +102,23 @@ for i in iterator:
         train_r,
         BATCH_SIZE
         )
-#Computes gradient via backpropagation
+    #Computes gradient via backpropagation
     loss.backward()
-
-# Updates model parameters
+    # Updates model parameters
     optimizer.step()
-#
-    if (i+1) % 100 == 0:
-        model.eval()
-        with torch.no_grad():
-            user_emb, user_emb_0, item_emb, item_emb_0 = model(test_adj)
-        loss_val = bpr_loss(
-            user_emb,
-            user_emb_0,
-            item_emb,
-            item_emb_0,
-            test_r,
-            BATCH_SIZE
-            )
-        val_loss = loss_val.item()
-        val_loss_lst.append(val_loss)
-
-        ndcg_k = NDCG_K(model, train_r, test_r, K=20)
-        ndcg_k_lst.append(ndcg_k)
-
-
-    iterator.set_postfix({
-        'Train Loss': loss.item(),
-        'Val Loss': val_loss,
-        'NDCG_K': ndcg_k
-        })
-    loss_lst.append(loss.item())
-
-    if i % 200 == 0 and i != 0:
+    if i % 100 == 0 and i != 0:
         scheduler.step()
 
+        ndcg_calculation_2(model, test_set, neg_samples, num_users, int_edges, head_items, k=10)
+        ndcg_calculation_head(model, test_set, neg_samples, num_users, int_edges, head_items, k=10)
+        ndcg_calculation_tail(model, test_set, neg_samples, num_users, int_edges, tail_items, k=2)
+        ndcg_calculation_3(model, test_set, neg_samples, num_users, int_edges, head_items, k=10)
+        ndcg_calculation_head_2(model, test_set, neg_samples, num_users, int_edges, head_items, k=10)
+        ndcg_calculation_tail_2(model, test_set, neg_samples, num_users, int_edges, tail_items, k=10)
 
-torch.save(model.state_dict(), 'trained_model2.pth')
-
-plt.style.use("ggplot")
-
-
-x_axis = [i * 100 for i in range(len(val_loss_lst))]
-plt.plot(x_axis, np.array(loss_lst)[x_axis], label='Training Loss')
-plt.plot(x_axis, val_loss_lst, label='Validation Loss')
-plt.title("Training and Validation Loss Curves")
-plt.xlabel("Iteration")
-plt.ylabel("Loss")
-plt.legend()
-fig = plt.gcf()
-fig.savefig("loss_plot2.png", dpi=300)
-plt.show()
-
-
-
-x_axis = [i * 100 for i in range(len(val_loss_lst))]
-plt.plot(x_axis, ndcg_k_lst, label='Validation ndcg')
-plt.title(f"Normalized Discounted Cumulative Gain, K={20}")
-plt.xlabel("Iteration")
-plt.ylabel("ndcg metric")
-plt.legend()
-fig = plt.gcf()
-fig.savefig("ndcg2.png", dpi=300)
-plt.show()
-
-#
+ndcg_calculation_2(model, test_set, neg_samples, num_users,int_edges,head_items,k=10)
+ndcg_calculation_head(model, test_set, neg_samples, num_users,int_edges,head_items,k=10)
+ndcg_calculation_tail(model, test_set, neg_samples, num_users,int_edges,tail_items,k=2)
+ndcg_calculation_3(model, test_set, neg_samples, num_users, int_edges, head_items, k=10)
+ndcg_calculation_head_2(model, test_set, neg_samples, num_users,int_edges,head_items,k=10)
+ndcg_calculation_tail_2(model, test_set, neg_samples, num_users,int_edges,tail_items,k=10)
