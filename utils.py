@@ -53,7 +53,7 @@ def sample_mini_batch(edge_index, batch_size):
             (i,j) positive edge
             (i,k) negative edge
     '''
-    edges = structured_negative_sampling(edge_index)
+    edges = structured_negative_sampling(edge_index.detach())
     edges = torch.stack(edges, dim=0)
     random_idx = random.choices(list(range(edges[0].shape[0])), k=batch_size)
     batch = edges[:, random_idx]
