@@ -119,7 +119,7 @@ def create_test_set(test_edges):
     return test_set
 
 
-def ndcg_calculation_2(model, test_set, neg_samples,num_users,int_edges,head_items,k=10,N=None):
+def ndcg_calculation_2(model, test_set, neg_samples,num_users,head_items,k=10,N=None):
 
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     user_embeddings=model.userEmb.weight
@@ -166,7 +166,7 @@ def ndcg_calculation_2(model, test_set, neg_samples,num_users,int_edges,head_ite
     avg_ndcg= total_ndcg / count if count > 0 else 0
     print(f"NDCG@10: {avg_ndcg}")
 
-def ndcg_calculation_head(model, test_set, neg_samples, num_users, int_edges, head_items, k=10,N=None):
+def ndcg_calculation_head(model, test_set, neg_samples, num_users, head_items, k=10,N=None):
     user_embeddings = model.userEmb.weight
     item_embeddings = model.itemEmb.weight
     total_ndcg = 0
@@ -217,7 +217,7 @@ def ndcg_calculation_head(model, test_set, neg_samples, num_users, int_edges, he
     return avg_ndcg
 
 
-def ndcg_calculation_tail(model, test_set, neg_samples, num_users, int_edges, tail_items, k=10,N=None):
+def ndcg_calculation_tail(model, test_set, neg_samples, num_users, tail_items, k=10,N=None):
     user_embeddings = model.userEmb.weight
     item_embeddings = model.itemEmb.weight
     total_ndcg = 0

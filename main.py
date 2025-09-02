@@ -8,6 +8,7 @@ from tqdm import tqdm
 from model import LightGCN
 from utils import *
 import torch
+import argparse
 from collections import defaultdict
 import random
 
@@ -43,16 +44,11 @@ train_edges = int_edges[:, train_idx]
 test_edges  = int_edges[:, test_idx]
 
 train_adj = create_adj_matrix(train_edges, num_users, num_movies)
-test_adj  = create_adj_matrix(test_edges, num_users, num_movies)
-
-# print(train_adj.shape)
-train_r = adj_to_r_mat(train_adj, num_users, num_movies)
-test_r  = adj_to_r_mat(test_adj, num_users, num_movies)
-
-train_set = set(zip(train_r[0].tolist(), train_r[1].tolist()))
+# test_adj  = create_adj_matrix(test_edges, num_users, num_movies)
+# test_r  = adj_to_r_mat(test_adj, num_users, num_movies)
+# train_set = set(zip(train_r[0].tolist(), train_r[1].tolist()))
 # test_set = set(zip(test_r[0].tolist(), test_r[1].tolist()))
 # print(len(train_set & test_set) == 0,"**")
-
 ''' ------------ Training Loop ------------ '''
 
 NUM_ITER   = 1000
@@ -67,21 +63,41 @@ print(f"Number of trainable parameters: {total_params}")
 optimizer = torch.optim.Adam(model.parameters(), lr = 0.001)
 scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--checkpoint_path", type=str, default="checkpointpath_last.pth",
+                    help="Path to save/load checkpoint")
+args = parser.parse_args()
+
+checkpoint_path = args.checkpoint_path
+
+end_epoch=99
 int_edges[1]+=num_users
 test_edges[1]+=num_users
 test_set=create_test_set(test_edges)
-ndcg_calculation_2(model, test_set, neg_samples, num_users,int_edges,head_items,k=10)
-ndcg_calculation_head(model, test_set, neg_samples, num_users,int_edges,head_items,k=10)
-ndcg_calculation_tail(model, test_set, neg_samples, num_users,int_edges,tail_items,k=2)
-ndcg_calculation_2(model, test_set, neg_samples, num_users,int_edges,head_items,k=10,N=80)
-ndcg_calculation_head(model, test_set, neg_samples, num_users,int_edges,head_items,k=10,N=80)
-ndcg_calculation_tail(model, test_set, neg_samples, num_users,int_edges,tail_items,k=10,N=80)
+row,col=train_adj[0],train_adj[1]
+train_r = adj_to_r_mat(train_adj, num_users, num_movies)
+try:
+    checkpoint = torch.load(checkpoint_path)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+    end_epoch=checkpoint['epoch']+100
+    train_r=checkpoint['train_r']
+    test_set=checkpoint['test_set']
+    print(f"Resumed from saved model")
+except FileNotFoundError:
+    print("⚡ No checkpoint found, starting from scratch")
+
+ndcg_calculation_2(model, test_set, neg_samples, num_users,head_items,k=10)
+ndcg_calculation_head(model, test_set, neg_samples, num_users,head_items,k=10)
+ndcg_calculation_tail(model, test_set, neg_samples, num_users,tail_items,k=2)
+ndcg_calculation_2(model, test_set, neg_samples, num_users,head_items,k=10,N=80)
+ndcg_calculation_head(model, test_set, neg_samples, num_users,head_items,k=10,N=80)
+ndcg_calculation_tail(model, test_set, neg_samples, num_users,tail_items,k=10,N=80)
 
 iterator = tqdm(range(NUM_ITER))
+loss=0
 
-row,col=train_adj[0],train_adj[1]
-# print(max(row),min(row))
-# print(max(col),min(col))
 for i in iterator:
     model.train()
     optimizer.zero_grad()
@@ -100,20 +116,21 @@ for i in iterator:
     # Updates model parameters
     optimizer.step()
 
-    if i % 100 == 0 and i != 0:
+    if(i%100==99):
         scheduler.step()
-        print(loss.item())
-        ndcg_calculation_2(model, test_set, neg_samples, num_users, int_edges, head_items, k=10)
-        ndcg_calculation_head(model, test_set, neg_samples, num_users, int_edges, head_items, k=10)
-        ndcg_calculation_tail(model, test_set, neg_samples, num_users, int_edges, tail_items, k=2)
-        ndcg_calculation_2(model, test_set, neg_samples, num_users, int_edges, head_items, k=10, N=80)
-        ndcg_calculation_head(model, test_set, neg_samples, num_users, int_edges, head_items, k=10, N=80)
-        ndcg_calculation_tail(model, test_set, neg_samples, num_users, int_edges, tail_items, k=10, N=80)
-        catalog_coverage_head_tail(model,test_set,num_users,neg_samples,head_items,tail_items)
+        ndcg_calculation_2(model, test_set, neg_samples, num_users, head_items, k=10)
+        ndcg_calculation_head(model, test_set, neg_samples, num_users, head_items, k=10)
+        ndcg_calculation_tail(model, test_set, neg_samples, num_users, tail_items, k=2)
+        ndcg_calculation_2(model, test_set, neg_samples, num_users, head_items, k=10, N=80)
+        ndcg_calculation_head(model, test_set, neg_samples, num_users, head_items, k=10, N=80)
+        ndcg_calculation_tail(model, test_set, neg_samples, num_users, tail_items, k=10, N=80)
 
-ndcg_calculation_2(model, test_set, neg_samples, num_users,int_edges,head_items,k=10)
-ndcg_calculation_head(model, test_set, neg_samples, num_users,int_edges,head_items,k=10)
-ndcg_calculation_tail(model, test_set, neg_samples, num_users,int_edges,tail_items,k=2)
-ndcg_calculation_2(model, test_set, neg_samples, num_users,int_edges,head_items,k=10,N=80)
-ndcg_calculation_head(model, test_set, neg_samples, num_users,int_edges,head_items,k=10,N=80)
-ndcg_calculation_tail(model, test_set, neg_samples, num_users,int_edges,tail_items,k=10,N=80)
+torch.save({
+    "epoch": end_epoch,
+    "model_state_dict": model.state_dict(),
+    "optimizer_state_dict": optimizer.state_dict(),
+    "scheduler_state_dict": scheduler.state_dict(),
+    "loss": loss.item(),
+    "train_r":train_r,
+    "test_set":test_set
+}, checkpoint_path)
