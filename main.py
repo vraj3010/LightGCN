@@ -51,7 +51,7 @@ train_adj = create_adj_matrix(train_edges, num_users, num_movies)
 # print(len(train_set & test_set) == 0,"**")
 ''' ------------ Training Loop ------------ '''
 
-NUM_ITER   = 1000
+NUM_ITER   = 100
 BATCH_SIZE = 512
 
 model = LightGCN(num_users, num_movies)
@@ -97,7 +97,7 @@ ndcg_calculation_tail(model, test_set, neg_samples, num_users,tail_items,k=10,N=
 
 iterator = tqdm(range(NUM_ITER))
 loss=0
-
+print("total epochs run after this are:",end_epoch)
 for i in iterator:
     model.train()
     optimizer.zero_grad()
