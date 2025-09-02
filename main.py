@@ -33,22 +33,14 @@ interaction_counts = ratings['movieId'].value_counts().to_dict()
 head_items, tail_items = separate_head_tail_items(interaction_counts, head_threshold=15)
 head_items = torch.tensor([i + num_users for i in head_items], dtype=torch.long)
 tail_items = torch.tensor([i + num_users for i in tail_items], dtype=torch.long)
-# print(len(head_items))
-# print(len(tail_items))
+print(len(head_items))
+print(len(tail_items))
 int_edges = create_interaction_edges(ratings['userId'], ratings['movieId'], ratings['rating'])
 user_ids = int_edges[0].to(dtype=torch.long)
 indices = torch.arange(0, int_edges.shape[1], dtype=torch.long)
-# print(indices)
 train_idx, test_idx = train_test_split_per_user(indices,user_ids, test_size=0.2)
-# print(train_idx)
-# print(int_edges)
-# print(len(train_idx))
-# print(len(test_idx))
 train_edges = int_edges[:, train_idx]
 test_edges  = int_edges[:, test_idx]
-
-# print(train_edges.shape)
-# print(test_edges.shape)
 
 train_adj = create_adj_matrix(train_edges, num_users, num_movies)
 test_adj  = create_adj_matrix(test_edges, num_users, num_movies)
@@ -81,9 +73,10 @@ test_set=create_test_set(test_edges)
 ndcg_calculation_2(model, test_set, neg_samples, num_users,int_edges,head_items,k=10)
 ndcg_calculation_head(model, test_set, neg_samples, num_users,int_edges,head_items,k=10)
 ndcg_calculation_tail(model, test_set, neg_samples, num_users,int_edges,tail_items,k=2)
-ndcg_calculation_3(model, test_set, neg_samples, num_users, int_edges, head_items, k=10)
-ndcg_calculation_head_2(model, test_set, neg_samples, num_users,int_edges,head_items,k=10)
-ndcg_calculation_tail_2(model, test_set, neg_samples, num_users,int_edges,tail_items,k=10)
+ndcg_calculation_2(model, test_set, neg_samples, num_users,int_edges,head_items,k=10,N=80)
+ndcg_calculation_head(model, test_set, neg_samples, num_users,int_edges,head_items,k=10,N=80)
+ndcg_calculation_tail(model, test_set, neg_samples, num_users,int_edges,tail_items,k=10,N=80)
+
 iterator = tqdm(range(NUM_ITER))
 
 row,col=train_adj[0],train_adj[1]
@@ -106,19 +99,21 @@ for i in iterator:
     loss.backward()
     # Updates model parameters
     optimizer.step()
+
     if i % 100 == 0 and i != 0:
         scheduler.step()
-
+        print(loss.item())
         ndcg_calculation_2(model, test_set, neg_samples, num_users, int_edges, head_items, k=10)
         ndcg_calculation_head(model, test_set, neg_samples, num_users, int_edges, head_items, k=10)
         ndcg_calculation_tail(model, test_set, neg_samples, num_users, int_edges, tail_items, k=2)
-        ndcg_calculation_3(model, test_set, neg_samples, num_users, int_edges, head_items, k=10)
-        ndcg_calculation_head_2(model, test_set, neg_samples, num_users, int_edges, head_items, k=10)
-        ndcg_calculation_tail_2(model, test_set, neg_samples, num_users, int_edges, tail_items, k=10)
+        ndcg_calculation_2(model, test_set, neg_samples, num_users, int_edges, head_items, k=10, N=80)
+        ndcg_calculation_head(model, test_set, neg_samples, num_users, int_edges, head_items, k=10, N=80)
+        ndcg_calculation_tail(model, test_set, neg_samples, num_users, int_edges, tail_items, k=10, N=80)
+        catalog_coverage_head_tail(model,test_set,num_users,neg_samples,head_items,tail_items)
 
 ndcg_calculation_2(model, test_set, neg_samples, num_users,int_edges,head_items,k=10)
 ndcg_calculation_head(model, test_set, neg_samples, num_users,int_edges,head_items,k=10)
 ndcg_calculation_tail(model, test_set, neg_samples, num_users,int_edges,tail_items,k=2)
-ndcg_calculation_3(model, test_set, neg_samples, num_users, int_edges, head_items, k=10)
-ndcg_calculation_head_2(model, test_set, neg_samples, num_users,int_edges,head_items,k=10)
-ndcg_calculation_tail_2(model, test_set, neg_samples, num_users,int_edges,tail_items,k=10)
+ndcg_calculation_2(model, test_set, neg_samples, num_users,int_edges,head_items,k=10,N=80)
+ndcg_calculation_head(model, test_set, neg_samples, num_users,int_edges,head_items,k=10,N=80)
+ndcg_calculation_tail(model, test_set, neg_samples, num_users,int_edges,tail_items,k=10,N=80)
